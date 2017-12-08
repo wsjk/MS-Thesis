@@ -1,0 +1,243 @@
+%init file for Simulink model
+
+%Run SRDmovie.m to create a movie of the results
+clear all
+
+%Global variables passed to the various sub-modules
+
+global m1 m2 g a b h h2 W L g...
+       smax smax2 RipForce K1 K2 K3 C...
+       x1 y1 z1 Boep B1ep B2ep B3ep p1 q1 r1...
+       x2 y2 z2 Boec B1ec B2ec B3ec p2 q2 r2...   
+       u1 v1 w1 u2 v2 w2...
+       SRD Cargo Platform... 
+       Jz1 Jx1 Jy1 Jz2 Jx2 Jy2...
+       count mu stroke broken Fmax
+   
+count = 1;
+
+g = 9.80; %gravitational constant [m/s^2]
+m1 = 70000; %platform (i.e. aircraft) [kg]
+m2 = 18000; %cargo [kg]
+a = 5; %Width of cargo (y-direction) [m]
+b = 5; %Length of cargo (x-direction) [m]
+h = 1;  %Height of SRD attachment on cargo (z-direction) [m]
+h2 = .25; %Thickness of platform which the cargo is on top of [m]
+W = 14; %Width of Platform (Aircraft) [m]
+L = 14; %Length of Platform [m]
+Fmax = 300000;
+smax = 3; %Fully stroked SRD [m]
+smax2 = 3.3; %Max stroke to completely break SRD [m]
+RipForce = 200000; %Activation force of SRD [N]
+K1 = 200000; %Spring constant of SRD before activation [N/m]
+K2 = 50000; %Spring constant of SRD after fully stroked [N/m]
+K3 = 5e9; %Spring Constant for interaction between cargo and platform [N/m]
+C = 1e8; %"Infinite" Damping
+mu = 0; %Coefficient of friction between cargo and platform
+
+Jz1 = (m1*(W^2+L^2))/12; %Moment of inertia for platform, rotation about z axis[kg-m2]
+Jx1 = (m1*(W^2+h2^2))/12; %Moment of inertia for platform, rotation about x axis[kg-m2]
+Jy1 = (m1*(h2^2+L^2))/12; %Moment of inertia for platform, rotation about y axis[kg-m2]
+Jz2 = (m2*(a^2+b^2))/12; %Moment of inertia for cargo, rotation about z axis[kg-m2]
+Jx2 = (m2*(a^2+h^2))/12; %Moment of inertia for cargo, rotation about x axis[kg-m2]
+Jy2 = (m2*(h^2+b^2))/12; %Moment of inertia for cargo, rotation about y axis[kg-m2]
+
+%Initial Conditions for Platform
+x1(1) = -5; %X location of Platform/Aircraft [m]
+y1(1) = 0; %Y location of Platform/Aircraft [m]
+z1(1) = .5; %Z location of Platform/Aircraft [m]
+u1(1) = 5; %X velocity of Platform/Aircraft [m/s]
+v1(1) = 0; %Y velocity of Platform/Aircraft [m/s]
+w1(1) = 0; %Z velocity of Platform/Aircraft [m/s]
+phi1(1) = 0; %Rotation of Platform about X axis [rad]
+theta1(1) = 0; %Rotation of Platform about Y axis [rad]
+psi1(1) = pi/4; %Rotation of Platform about Z axis [rad]
+p1(1) = 0; %Angular velocity about X axis of Platform [rad/s]
+q1(1) = 0; %Angular velocity about Y axis of Platform [rad/s]
+r1(1) = 0; %Angular velocity about Z axis of Platform [rad/s]
+
+%Initial Conditions for Cargo
+x2(1) = 5; %X location of Cargo [m]
+y2(1) = 0; %Y location of Cargo [m]
+z2(1) = 0; %Z location of Cargo [m]
+u2(1) = 0; %X velocity of Cargo [m/s]
+v2(1) = 0; %Y velocity of Cargo [m/s]
+w2(1) = 0; %Z velocity of Cargo [m/s]
+phi2(1) = 0; %Rotation of Cargo about X axis [rad]
+theta2(1) = 0; %Rotation of Cargo about Y axis [rad]
+psi2(1) = 0; %Rotation of Cargo about Z axis [rad]
+p2(1) = 0; %Angular velocity about X axis of Cargo [rad/s]
+q2(1) = 0; %Angular velocity about Y axis of Cargo [rad/s]
+r2(1) = 0; %Angular velocity about Z axis of Cargo [rad/s]
+
+%%%\\\\\\\\\\\\\\\\\\\\||||||||||||||||||||||/////////////////%%
+%%%||||||||||||||||||||||||| INPUT |||||||||||||||||||||||||||%% 
+%%%////////////////////||||||||||||||||||||||\\\\\\\\\\\\\\\\\%%
+%SRD =[ fx   fy   fz   cx   cy   cz] initial coordinates
+% fx, fy and fz are coordinates of the SRD floor attachment points
+% cx, cy and cz are coordinates of the SRD attachment points on cargo
+%Positive x is to the right (top/side view)
+%Positive y is up (top view)
+% Positive z is up from the floor(side/front view)
+
+%Cargo = [Cx  Cy  Cz]  Coordinates of the corners of the Cargo
+Cargo = [-b/2 -a/2  h/2;...% Cx1 Cy1 Cz1 top of box on Corner #1
+         -b/2 -a/2 -h/2;...% Cx1 Cy1 Cz2 bottom of box on Corner #1
+         -b/2  a/2  h/2;...% Cx2 Cy2 Cz1 top of box on Corner #2
+         -b/2  a/2 -h/2;...% Cx2 Cy2 Cz2
+          b/2  a/2  h/2;...% etc
+          b/2  a/2 -h/2;...
+          b/2 -a/2  h/2;...
+          b/2 -a/2 -h/2;...
+           0    0  0]; %Last line is CG Location of cargo [x y z 0 0 0 0]]; 
+
+%Plaform = [Px Py Pz]  Coordinates of the corners of the Platform       
+Platform = [-b/2 -a/2  h/2;...% Cx1 Cy1 Cz1 top of box on Corner #1
+         -b/2 -a/2 -h/2;...% Cx1 Cy1 Cz2 bottom of box on Corner #1
+         -b/2  a/2  h/2;...% Cx2 Cy2 Cz1 top of box on Corner #2
+         -b/2  a/2 -h/2;...% Cx2 Cy2 Cz2
+          b/2  a/2  h/2;...% etc
+          b/2  a/2 -h/2;...
+          b/2 -a/2  h/2;...
+          b/2 -a/2 -h/2;...
+           0    0  0]; %Last line is CG Location of cargo [x y z 0 0 0 0]]; 
+                
+%Platform Initial condition vectors
+DCM0_ep = Rotation(phi(1),theta(1),psi(1),2); %Rotation from Earth Fixed CS to Platform CS
+Boep(1) = sqrt(0.25 * (1 + trace(DCM0_ep)));
+B1ep(1) = sqrt(0.25 * (1 + 2*DCM0_ep(1,1) - trace(DCM0_ep)));
+B2ep(1) = sqrt(0.25 * (1 + 2*DCM0_ep(2,2) - trace(DCM0_ep)));
+B3ep(1) = sqrt(0.25 * (1 + 2*DCM0_ep(3,3) - trace(DCM0_ep)));
+
+%Cargo initial conditions vectors
+DCM0_ec = Rotation(phi2(1),theta2(1),psi2(1),2); %Rotation from Earth Fixed to Cargo cs
+Boec(1) = sqrt(0.25 * (1 + trace(DCM0_ec)));
+B1ec(1) = sqrt(0.25 * (1 + 2*DCM0_ec(1,1) - trace(DCM0_ec)));
+B2ec(1) = sqrt(0.25 * (1 + 2*DCM0_ec(2,2) - trace(DCM0_ec)));
+B3ec(1) = sqrt(0.25 * (1 + 2*DCM0_ec(3,3) - trace(DCM0_ec)));
+
+[n,m] = size(SRD); %n = total number of SRDs 
+[p,q] = size(Cargo); 
+cgc = Cargo(p,1:3); %coordinates of cargo CG [x y z] in cargo cs
+[r,s] = size(Platform);
+cgp = Platform(r,1:3); %coordinates of Platform CG in platform cs
+
+Cx = zeros(8,1); %X position of corners of cargo box
+Cy = zeros(8,1); %Y position of corners of cargo box
+Cz = zeros(8,1); %Z position of corners of cargo box
+location = zeros(8,2); %indicates where the cargo is touching platform
+CargoVelocity_p = zeros(8,1); %velocity of cargo corners in Platform cs
+PlatformVelocity_p = zeros(8,1); %Velocity of Platform corners in Platform cs
+
+%%%\\\\\\\\\\\\\\\\\\\\||||||||||||||||||||||////////////////////%%%
+%%%|||||||||||||||||||||||||| SOLVER ||||||||||||||||||||||||||||%%% 
+%%%////////////////////||||||||||||||||||||||\\\\\\\\\\\\\\\\\\\\%%%
+
+%Example: x1 = [x1;x1dot] = [displacement; velocity]
+h = 0.0001;
+t=0;
+
+for i = 1:1000
+    
+    %Quaternions -> Direction Cosine Matrix (DCM)
+    DCMpe = Quaternions2DCM(Boep(i),B1ep(i),B2ep(i),B3ep(i),1); %Platform -> Earth
+    DCMep = Quaternions2DCM(Boep(i),B1ep(i),B2ep(i),B3ep(i),2); %Earth to Platform CS
+    DCMce = Quaternions2DCM(Boec(i),B1ec(i),B2ec(i),B3ec(i),1); %Cargo -> Earth
+    DCMec = Quaternions2DCM(Boec(i),B1ec(i),B2ec(i),B3ec(i),2); %Earth to Cargo CS
+    location = zeros(8,2);
+    %Calculating displacment and location of the corners of the Platform and Cargo
+    for a = 1:8 %for the corners of cargo/platform: cargo/platform is a solid, rigid box
+        %Displacement of Platform corners due to rotation
+        Px_rp = DCMpe * [Platform(a,1); Platform(a,2); -h/2]; 
+        %Location of Platform corners in Earth fixed cs
+        Px_e = [x1(i)+Px_rp(1,1); y1(i)+Px_rp(2,1); z1(i)+Px_rp(3,1)]; 
+        Px_p = DCMep * Px_e; %Location of platform in platform cs
+        Cx_rc = DCMce * [Cargo(a,1); Cargo(a,2); Cargo(a,3)];
+        %Cx_e = Coordinate vector of SRD cargo attachment point relative to platform cs
+        Cx_e = [x2(i)+Cx_rc(1,1); y2(i)+Cx_rc(2,1); z2(i)+Cx_rc(3,1)]; 
+        Cx_p = DCMep * Cx_e; %Position due to rotation of cargo in platform cs
+        Cx(a,1) = Cx_p(1,1) - Px_p(1,1);
+        Cy(a,1) = Cx_p(2,1) - Px_p(2,1);
+        Cz(a,1) = Cx_p(3,1) - Px_p(3,1);
+        location(a,1) = a; %Tells us where the cargo is touching the platform
+        if Cx(a,1) <= 0 && Cy(a,1) <= 0 %in contact or interpenetrating
+            location(a,2) = 1; %Puts a one in the column at the corner touching platform
+            %Pp_ = Platform point of contact in fixed inertial frame
+            %Cargo point of contact is always going to be one of the corners
+            Ppxe(a) = Cx_e(1,1) - x1(i); 
+            Ppye(a) = Cx_e(2,1) - y1(i); 
+            Ppze(a) = Cx_e(3,1) - z1(i); 
+        end
+    end
+
+    N = sum(location(:,2) == 1);
+    for a = 1:8
+        wpe1 = DCMpe*[0 0 r1(i)]; %angular velocity of platform in earth fixed cs
+        Rpe = DCMpe*[Platform(a,1) Platform(a,2) Platform(a,3)]; %location of platform corners 
+        wce1 = DCMpe*[0 0 r2(i)]; %angular velocity of cargo in earth fixed cs
+        Rce = DCMpe*[Cargo(a,1) Cargo(a,2) Cargo(a,3)]; %location of cargo corners
+
+        %Vpe1 = Velocity of the corners of the platform in earth fixed cs
+        Vpe1 = [u1(i) v1(i) w1(i)] + cross(wpe1,Rpe);
+        %Vce1 = Velocity of the corners of the cargo in earth fixed cs
+        Vce1 = [u2(i) v2(i) w2(i)] + cross(wce1,Rce);
+
+        if N == 1 %if only one corner of cargo is contact with platform or vice versa
+            if location(a,2) == 1 %find which corner is in contact
+                %Pc = location of point of contact wrt to cargo CG, 
+                %because impact is always going to be on corner of cargo
+                Pc = Rc; %body fixed cargo cs
+                %Pp = location of point of contact on platform in body fixed platform CS
+                Pp = DCMep*[Ppxe(a) Ppye(a) Ppze(a)];
+                n1 = DCMpe*[0;0;1] %unit vector normal to the platform surface in inertial frame
+                Vpe1 = [u1(i) v1(i) w1(i)] + cross(wpe1,Pp); %Velocity of contact point on platform 
+                vcp = Vce1 - Vpe1; %relative velocity, cargo is colliding into platform
+                Vn = dot(vcp,n1) %Component of relative velocity in the direction normal to platform surface
+                J = -(1+e)*Vn / ((1/m1) + (1/m2) + cross(Pp,n1)^2/Jz1 + cross(Pc,n1)^2/Jz2); %Impulse parameter
+                Vce2 = Vce1 + J * n1 / m2;
+                Vpe2 = Vpe1 - J * n1 / m1; %velocity of platform corner after impact
+                wc2 = wc1 + cross(Pc,J*n1)/Jz2;
+                wp2 = wp1 - cross(Pp,J*n1)/Jz1;
+                r1(i+1) = wp2(1,3);
+                r2(i+1) = wc2(1,3);
+            end
+        end
+    end
+
+    %3DOF systems, all movement is in xy plane
+    x1(i+1) = x1(i) + h*u1(i); 
+    y1(i+1) = y1(i) + h*v1(i);
+    z1(i) = 0;
+    x2(i+1) = x2(i) + h*u2(i);
+    y2(i+1) = y2(i) + h*v2(i);
+    z2(i) = 0;
+
+    u1(i+1) = u1(i) + j*n1(1,1)/m1;
+    v1(i+1) = v1(i) + j*n1(2,1)/m1;
+    w1(i) = 0;
+    u2(i+1) = u2(i) + j*n1(1,1)/m2;
+    v2(i+1) = v2(i) + j*n1(2,1)/m2;
+    w2(i) = 0;
+
+    Boep(i+1) = Boep(i) + h*0.5*(r1(i)*-B3ep(i)); 
+    B1ep(i+1) = B1ep(i) + h*0.5*(r1(i)* B2ep(i));
+    B2ep(i+1) = B2ep(i) + h*0.5*(r1(i)*-B1ep(i));
+    B3ep(i+1) = B3ep(i) + h*0.5*(r1(i)* Boep(i));
+
+    Boec(i+1) = Boec(i) + h*0.5*(r1(i)*-B3ec(i)); 
+    B1ec(i+1) = B1ec(i) + h*0.5*(r1(i)* B2ec(i));
+    B2ec(i+1) = B2ec(i) + h*0.5*(r1(i)*-B1ec(i));
+    B3ec(i+1) = B3ec(i) + h*0.5*(r1(i)* Boec(i));
+
+    count = count + 1
+    t = t + h;
+    
+end
+
+%MOVIES!
+% SRDMovie(0,0) %side
+% SRDMovie(90,0) %front
+% SRDMovie(15,15) %iso
+% SRDMovie(0,90) %top
+
+
